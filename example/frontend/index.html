@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoFront demo</title>
+  <script src="/gofront.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 1.5rem; background: #0f172a; color: #e2e8f0; }
+    h1 { margin: 0; font-size: 1.6rem; text-align: center; padding: 0 1rem; }
+    .card { background: #1e293b; padding: 1.25rem 1.5rem; border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.4); text-align: center; }
+    button { font-size: 1rem; padding: .6rem 1.2rem; border: 0; border-radius: 8px;
+      background: #38bdf8; color: #04283a; font-weight: 600; }
+    code { color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <h1 id="greeting">Loading…</h1>
+  <div class="card">
+    <p>2 + 3 = <code id="sum">?</code> <small>(computed in Go)</small></p>
+    <button id="btn">Call Go again</button>
+  </div>
+
+  <script>
+    async function refresh() {
+      document.getElementById("greeting").textContent =
+        await window.gofront.api.Hello("WebView");
+      document.getElementById("sum").textContent =
+        await window.gofront.api.Add(2, 3);
+    }
+    document.getElementById("btn").addEventListener("click", refresh);
+    refresh().catch((e) => {
+      document.getElementById("greeting").textContent = "Error: " + e.message;
+    });
+  </script>
+</body>
+</html>
