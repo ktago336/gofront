@@ -13,6 +13,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -23,10 +24,12 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -43,8 +46,14 @@ public class MainActivity extends Activity {
     private static final int PORT = 8080;
     private static final int REQ_WEB_PERMISSIONS = 1001;
     private static final int REQ_FILE_CHOOSER = 1002;
+    private static final int REQ_POST_NOTIFICATIONS = 1003;
+    // Not in android-28 stubs; required at runtime on API 33+.
+    private static final String PERM_POST_NOTIFICATIONS =
+            "android.permission.POST_NOTIFICATIONS";
+    private static final String TAG = "gofront";
 
     private WebView web;
+    private AndroidBridge androidBridge;
     private Set<String> declaredPermissions;
     private PermissionRequest pendingWebPermission;
     private ValueCallback<Uri[]> fileCallback;
@@ -99,8 +108,23 @@ public class MainActivity extends Activity {
             // optional assets
         }
 
+        startAndroidBridge();
         startServer(frontend.getAbsolutePath());
         waitThenLoad();
+        // After UI is up; leave immersive briefly so the system dialog is visible.
+        getWindow().getDecorView().post(new Runnable() {
+            public void run() {
+                requestNotificationPermission();
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (androidBridge != null) {
+            androidBridge.stop();
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -113,6 +137,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == REQ_POST_NOTIFICATIONS) {
+            hideSystemUI();
+            return;
+        }
         if (requestCode != REQ_WEB_PERMISSIONS) {
             super.onRequestPermissionsResult(requestCode, permissions, grantResults);
             return;
@@ -134,6 +162,20 @@ public class MainActivity extends Activity {
         } else {
             req.deny();
         }
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return;
+        }
+        if (checkSelfPermission(PERM_POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        // Immersive fullscreen hides/blocks the system permission sheet on many OEMs.
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        Log.i(TAG, "requesting " + PERM_POST_NOTIFICATIONS);
+        requestPermissions(new String[]{PERM_POST_NOTIFICATIONS}, REQ_POST_NOTIFICATIONS);
     }
 
     @Override
@@ -309,6 +351,11 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    private void startAndroidBridge() {
+        androidBridge = new AndroidBridge(this);
+        androidBridge.start();
+    }
+
     private void startServer(String frontendDir) {
         try {
             String bin = getApplicationInfo().nativeLibraryDir + "/libserver.so";
@@ -316,8 +363,11 @@ public class MainActivity extends Activity {
                     bin,
                     "-addr", ADDR + ":" + PORT,
                     "-frontend", frontendDir);
+            pb.environment().put(AndroidBridge.ENV_ADDR,
+                    AndroidBridge.ADDR + ":" + AndroidBridge.PORT);
             pb.redirectErrorStream(true);
-            pb.start();
+            Process proc = pb.start();
+            pipeProcessLog(proc.getInputStream());
         } catch (Exception e) {
             final String msg = "failed to start server: " + e;
             runOnUiThread(new Runnable() {
@@ -327,6 +377,23 @@ public class MainActivity extends Activity {
                 }
             });
         }
+    }
+
+    private static void pipeProcessLog(final InputStream in) {
+        Thread t = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    BufferedReader r = new BufferedReader(new InputStreamReader(in));
+                    String line;
+                    while ((line = r.readLine()) != null) {
+                        Log.i(TAG, line);
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+        }, "gofront-server-log");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void waitThenLoad() {

@@ -139,6 +139,9 @@ func buildManifestTree(p ManifestParams) *elem {
 			{name: "uses-permission", attrs: []attr{
 				strAttr("name", "android.permission.INTERNET"),
 			}},
+			{name: "uses-permission", attrs: []attr{
+				strAttr("name", "android.permission.POST_NOTIFICATIONS"),
+			}},
 			{name: "application", attrs: applicationAttrs(p, strAttr, boolAttr), children: []*elem{
 				{name: "activity", attrs: []attr{
 					strAttr("name", p.ActivityClass),

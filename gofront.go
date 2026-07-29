@@ -4,6 +4,7 @@ package gofront
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,13 +16,16 @@ import (
 type App struct {
 	Addr        string // default 127.0.0.1:8080; override with -addr
 	FrontendDir string // default "frontend"; override with -frontend
-	binder      *Binder
+	// AndroidAPI calls Android host APIs (notifications, …) from Go.
+	AndroidAPI *AndroidAPI
+	binder     *Binder
 }
 
 func New() *App {
 	return &App{
 		Addr:        "127.0.0.1:8080",
 		FrontendDir: "frontend",
+		AndroidAPI:  newAndroidAPI(),
 		binder:      newBinder(),
 	}
 }
@@ -46,7 +50,13 @@ func (a *App) Run() error {
 	a.FrontendDir = *frontend
 
 	if *genDir != "" {
-		return a.GenerateBindings(*genDir)
+		if err := a.GenerateBindings(*genDir); err != nil {
+			fmt.Fprintln(os.Stderr, "gofront: "+err.Error())
+			os.Exit(1)
+		}
+		// Build runs this binary only to emit bindings; exit so user code
+		// after Run (or a blocking main) cannot hang gofront build.
+		os.Exit(0)
 	}
 	return a.serve()
 }

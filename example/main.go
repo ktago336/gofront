@@ -7,7 +7,9 @@ import (
 	"github.com/ktago336/gofront"
 )
 
-type API struct{}
+type API struct {
+	backend *gofront.App
+}
 
 type Node struct {
 	Name     string  `json:"name"`
@@ -25,6 +27,9 @@ func (a *API) Hello(name string) string {
 }
 
 func (a *API) Add(x, y float64) float64 {
+	if err := a.backend.AndroidAPI.Notify("ANDROID APP", "Calculation called!"); err != nil {
+		log.Printf("notify: %v", err)
+	}
 	return x + y
 }
 
@@ -42,8 +47,13 @@ func (a *API) Tree() *Node {
 
 func main() {
 	app := gofront.New()
-	app.Bind("api", &API{})
-	if err := app.Run(); err != nil {
-		log.Fatal(err)
-	}
+	app.Bind("api", &API{backend: app})
+
+	go func() {
+		if err := app.Run(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	select {}
 }
