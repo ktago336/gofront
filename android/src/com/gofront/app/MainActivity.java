@@ -2,17 +2,23 @@ package com.gofront.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -36,10 +42,13 @@ public class MainActivity extends Activity {
     private static final String ADDR = "127.0.0.1";
     private static final int PORT = 8080;
     private static final int REQ_WEB_PERMISSIONS = 1001;
+    private static final int REQ_FILE_CHOOSER = 1002;
 
     private WebView web;
     private Set<String> declaredPermissions;
     private PermissionRequest pendingWebPermission;
+    private ValueCallback<Uri[]> fileCallback;
+    private Uri cameraOutputUri;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +80,12 @@ public class MainActivity extends Activity {
                         handleWebPermissionRequest(request);
                     }
                 });
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                    FileChooserParams params) {
+                return handleShowFileChooser(callback, params);
             }
         });
         setContentView(web, new ViewGroup.LayoutParams(
@@ -121,6 +136,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != REQ_FILE_CHOOSER) {
+            super.onActivityResult(requestCode, resultCode, data);
+            return;
+        }
+        ValueCallback<Uri[]> cb = fileCallback;
+        fileCallback = null;
+        if (cb == null) {
+            return;
+        }
+        Uri[] results = null;
+        if (resultCode == RESULT_OK) {
+            if (data != null && (data.getDataString() != null || data.getClipData() != null)) {
+                results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+            } else if (cameraOutputUri != null) {
+                results = new Uri[]{cameraOutputUri};
+            }
+        }
+        cameraOutputUri = null;
+        cb.onReceiveValue(results);
+    }
+
     private void hideSystemUI() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -129,6 +167,80 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+    }
+
+    private boolean handleShowFileChooser(ValueCallback<Uri[]> callback,
+            WebChromeClient.FileChooserParams params) {
+        if (fileCallback != null) {
+            fileCallback.onReceiveValue(null);
+        }
+        fileCallback = callback;
+        cameraOutputUri = null;
+
+        Intent content = params.createIntent();
+        Intent chooser = Intent.createChooser(content, null);
+
+        if (shouldOfferCamera(params)) {
+            Intent camera = tryCameraIntent();
+            if (camera != null) {
+                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{camera});
+            }
+        }
+
+        try {
+            startActivityForResult(chooser, REQ_FILE_CHOOSER);
+            return true;
+        } catch (ActivityNotFoundException e) {
+            fileCallback = null;
+            cameraOutputUri = null;
+            return false;
+        }
+    }
+
+    private boolean shouldOfferCamera(WebChromeClient.FileChooserParams params) {
+        if (params.isCaptureEnabled()) {
+            return true;
+        }
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) {
+            return false;
+        }
+        for (int i = 0; i < types.length; i++) {
+            String t = types[i];
+            if (t == null || t.length() == 0 || "*/*".equals(t)) {
+                continue;
+            }
+            if (t.startsWith("image/") || "image/*".equals(t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Intent tryCameraIntent() {
+        Intent take = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (take.resolveActivity(getPackageManager()) == null) {
+            return null;
+        }
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(MediaStore.Images.Media.DISPLAY_NAME,
+                    "gofront_" + System.currentTimeMillis() + ".jpg");
+            Uri uri = getContentResolver().insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                return null;
+            }
+            cameraOutputUri = uri;
+            take.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+            take.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            return take;
+        } catch (Exception e) {
+            cameraOutputUri = null;
+            return null;
+        }
     }
 
     private Set<String> loadDeclaredPermissions() {
