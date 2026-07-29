@@ -55,6 +55,10 @@ type ManifestParams struct {
 	MinSDK        int
 	TargetSDK     int
 	ActivityClass string
+	// IconRef, if set (e.g. "@mipmap/ic_launcher"), adds android:icon on
+	// <application>. Used when generating XML for aapt2; the binary
+	// EncodeManifest path does not resolve app resource refs.
+	IconRef string
 }
 
 type attr struct {
@@ -135,12 +139,7 @@ func buildManifestTree(p ManifestParams) *elem {
 			{name: "uses-permission", attrs: []attr{
 				strAttr("name", "android.permission.INTERNET"),
 			}},
-			{name: "application", attrs: []attr{
-				strAttr("label", p.Label),
-				boolAttr("hasCode", true),
-				boolAttr("extractNativeLibs", true),
-				boolAttr("usesCleartextTraffic", true),
-			}, children: []*elem{
+			{name: "application", attrs: applicationAttrs(p, strAttr, boolAttr), children: []*elem{
 				{name: "activity", attrs: []attr{
 					strAttr("name", p.ActivityClass),
 					refAttr("theme", themeNoTitleFullscreen),
@@ -158,6 +157,18 @@ func buildManifestTree(p ManifestParams) *elem {
 			}},
 		},
 	}
+}
+
+func applicationAttrs(p ManifestParams, strAttr func(string, string) attr, boolAttr func(string, bool) attr) []attr {
+	attrs := []attr{strAttr("label", p.Label)}
+	if p.IconRef != "" {
+		attrs = append(attrs, strAttr("icon", p.IconRef))
+	}
+	return append(attrs,
+		boolAttr("hasCode", true),
+		boolAttr("extractNativeLibs", true),
+		boolAttr("usesCleartextTraffic", true),
+	)
 }
 
 func EncodeManifest(p ManifestParams) []byte {

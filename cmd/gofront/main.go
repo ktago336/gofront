@@ -62,6 +62,7 @@ func printBuildFlags(w *os.File) {
   -version-name string  android versionName (default "1.0")
   -min-sdk int          minSdkVersion (default 21)
   -target-sdk int       targetSdkVersion (default 28)
+  -icon string          PNG path for the launcher icon
   -override-manifest    path to AndroidManifest (binary AXML, or XML via aapt2)
   -install              adb install -r after building
   -run                  adb launch the app after installing
@@ -144,6 +145,7 @@ func cmdBuild(args []string) error {
 	versionName := fs.String("version-name", "1.0", "android versionName")
 	minSDK := fs.Int("min-sdk", 21, "minSdkVersion")
 	targetSDK := fs.Int("target-sdk", 28, "targetSdkVersion")
+	icon := fs.String("icon", "", "PNG path for the launcher icon")
 	overrideManifest := fs.String("override-manifest", "", "path to AndroidManifest (binary AXML or XML)")
 	install := fs.Bool("install", false, "adb install -r after building")
 	run := fs.Bool("run", false, "adb launch the app after installing")
@@ -199,6 +201,7 @@ func cmdBuild(args []string) error {
 		ABI:          *abi,
 		FrontendDir:  *frontend,
 		Output:       *out,
+		IconPath:     *icon,
 		Manifest: apk.ManifestParams{
 			Package:     *pkg,
 			Label:       *label,
@@ -210,11 +213,16 @@ func cmdBuild(args []string) error {
 	}
 	if *overrideManifest != "" {
 		fmt.Printf("==> using manifest override %s\n", *overrideManifest)
-		data, err := apk.LoadManifest(*overrideManifest)
-		if err != nil {
-			return fmt.Errorf("override-manifest: %w", err)
+		if *icon != "" {
+			// aapt2 must see XML so it can link @mipmap/ic_launcher into the same package.
+			opts.OverrideManifestPath = *overrideManifest
+		} else {
+			data, err := apk.LoadManifest(*overrideManifest)
+			if err != nil {
+				return fmt.Errorf("override-manifest: %w", err)
+			}
+			opts.ManifestXML = data
 		}
-		opts.ManifestXML = data
 	}
 	if err := apk.Build(opts); err != nil {
 		return err

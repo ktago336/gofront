@@ -18,8 +18,14 @@ type Options struct {
 	Output       string
 	Manifest     ManifestParams
 	// ManifestXML, if non-nil, replaces the generated AndroidManifest.xml
-	// (compiled binary AXML bytes).
+	// (compiled binary AXML bytes). Ignored when IconPath is set.
 	ManifestXML []byte
+	// IconPath is a PNG used as the launcher icon (@mipmap/ic_launcher).
+	// When set, aapt2 builds resources.arsc + res/ and a matching manifest.
+	IconPath string
+	// OverrideManifestPath is an XML (or, without IconPath, binary) manifest.
+	// With IconPath, only XML is supported so aapt2 can link icon resources.
+	OverrideManifestPath string
 }
 
 type fileEntry struct {
@@ -39,16 +45,29 @@ func Build(opts Options) error {
 	}
 
 	manifest := opts.ManifestXML
-	if manifest == nil {
+	arsc := assets.ResourcesArsc
+	var resEntries []fileEntry
+
+	if opts.IconPath != "" {
+		fmt.Printf("==> packaging launcher icon %s\n", opts.IconPath)
+		pack, err := packLauncherIcon(opts)
+		if err != nil {
+			return err
+		}
+		manifest = pack.Manifest
+		arsc = pack.ResourcesArsc
+		resEntries = pack.Res
+	} else if manifest == nil {
 		manifest = EncodeManifest(opts.Manifest)
 	}
 
 	entries := []fileEntry{
 		{name: "AndroidManifest.xml", data: manifest},
-		{name: "resources.arsc", data: assets.ResourcesArsc, store: true},
+		{name: "resources.arsc", data: arsc, store: true},
 		{name: "classes.dex", data: assets.ClassesDex},
 		{name: "lib/" + opts.ABI + "/libserver.so", data: server},
 	}
+	entries = append(entries, resEntries...)
 
 	if opts.FrontendDir != "" {
 		fe, err := collectFrontend(opts.FrontendDir)

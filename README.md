@@ -117,13 +117,19 @@ bootstrap provides.
 | `-version-name` | `1.0` | versionName |
 | `-min-sdk` | `21` | minSdkVersion |
 | `-target-sdk` | `28` | targetSdkVersion |
+| `-icon` | | PNG path for the launcher icon |
 | `-override-manifest` | | custom `AndroidManifest` (binary AXML or XML) |
 | `-install` | | install with adb |
 | `-run` | | launch after install |
 
+`-icon`: PNG is packed as `@mipmap/ic_launcher` via `aapt2` (same cache as
+manifest compile). Works with `-override-manifest` when that file is XML; binary
+AXML overrides are not supported together with `-icon`.
+
 `-override-manifest`: binary AXML is used as-is; XML is compiled with `aapt2`
 (auto-downloaded to the user cache, no JDK). Manifest-related flags above are
-ignored when this is set.
+ignored when this is set (unless `-icon` is also set, in which case the XML is
+re-linked with the icon resources).
 
 ## How it works
 
