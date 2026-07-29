@@ -22,6 +22,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "gofront: "+err.Error())
 			os.Exit(1)
 		}
+	case "init-manifest":
+		if err := cmdInitManifest(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "gofront: "+err.Error())
+			os.Exit(1)
+		}
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -37,13 +42,17 @@ func usage() {
 Usage:
   gofront build [flags] [package-dir]
   gofront build -h
+  gofront init-manifest [flags] [dir]
+  gofront init-manifest -h
 
 `)
 	printBuildFlags(os.Stderr)
+	fmt.Fprintln(os.Stderr)
+	printInitManifestFlags(os.Stderr)
 }
 
 func printBuildFlags(w *os.File) {
-	fmt.Fprint(w, `Flags:
+	fmt.Fprint(w, `build flags:
   -o string             output apk path (default "app.apk")
   -frontend string      frontend dir to bundle (default "<package-dir>/frontend")
   -abi string           target Android ABI (default "arm64-v8a")
@@ -57,6 +66,66 @@ func printBuildFlags(w *os.File) {
   -install              adb install -r after building
   -run                  adb launch the app after installing
 `)
+}
+
+func printInitManifestFlags(w *os.File) {
+	fmt.Fprint(w, `init-manifest flags:
+  -o string             output path (default "<dir>/AndroidManifest.xml")
+  -f                    overwrite if the file already exists
+`)
+}
+
+func cmdInitManifest(args []string) error {
+	fs := flag.NewFlagSet("init-manifest", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Usage: gofront init-manifest [flags] [dir]
+
+Write the default AndroidManifest.xml (same as gofront build without
+-override-manifest) so you can edit it and pass -override-manifest.
+
+`)
+		printInitManifestFlags(os.Stderr)
+	}
+	out := fs.String("o", "", "output path (default <dir>/AndroidManifest.xml)")
+	force := fs.Bool("f", false, "overwrite if the file already exists")
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+
+	dir := "."
+	if len(positional) > 0 {
+		dir = positional[0]
+	}
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	path := *out
+	if path == "" {
+		path = filepath.Join(dir, "AndroidManifest.xml")
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+
+	if !*force {
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Errorf("%s already exists (use -f to overwrite)", path)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	xml := apk.FormatManifestXML(apk.DefaultManifestParams())
+	if err := os.WriteFile(path, []byte(xml), 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("==> wrote %s\n", path)
+	return nil
 }
 
 func cmdBuild(args []string) error {

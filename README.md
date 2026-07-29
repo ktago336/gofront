@@ -1,5 +1,7 @@
 # gofront
 
+Perfect for developers who want to create Android applications with only Golang and HTML+JS+CSS
+
 Go + any JS frontend → one Android `.apk`.
 
 On the phone a tiny WebView opens your UI; a Go binary serves `frontend/` and
@@ -85,7 +87,24 @@ gofront build . -o app.apk
 gofront build . -install -run
 ```
 
-### Flags
+### Custom AndroidManifest
+
+Write the default manifest (same as `build` without `-override-manifest`), edit
+permissions / metadata, then build with the override:
+
+```sh
+gofront init-manifest
+# edit AndroidManifest.xml — e.g. add CAMERA for getUserMedia
+gofront build . -override-manifest AndroidManifest.xml -install -run
+```
+
+`init-manifest` flags: `-o` output path (default `<dir>/AndroidManifest.xml`),
+`-f` overwrite if the file exists. Optional `[dir]` defaults to `.`.
+
+Keep activity `com.gofront.app.MainActivity` — that class is what the embedded
+bootstrap provides.
+
+### `build` flags
 
 | flag | default | meaning |
 |------|---------|---------|
@@ -104,8 +123,7 @@ gofront build . -install -run
 
 `-override-manifest`: binary AXML is used as-is; XML is compiled with `aapt2`
 (auto-downloaded to the user cache, no JDK). Manifest-related flags above are
-ignored when this is set. Keep activity `com.gofront.app.MainActivity` — that
-class is what the embedded bootstrap provides.
+ignored when this is set.
 
 ## How it works
 
