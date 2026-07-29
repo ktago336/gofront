@@ -1,6 +1,9 @@
 package com.gofront.app;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -9,6 +12,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
@@ -18,6 +23,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Copies assets/frontend, starts libserver.so, loads http://127.0.0.1:8080 in a WebView.
@@ -26,8 +35,11 @@ public class MainActivity extends Activity {
 
     private static final String ADDR = "127.0.0.1";
     private static final int PORT = 8080;
+    private static final int REQ_WEB_PERMISSIONS = 1001;
 
     private WebView web;
+    private Set<String> declaredPermissions;
+    private PermissionRequest pendingWebPermission;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,10 +57,22 @@ public class MainActivity extends Activity {
         }
         hideSystemUI();
 
+        declaredPermissions = loadDeclaredPermissions();
+
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.setWebViewClient(new WebViewClient());
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        handleWebPermissionRequest(request);
+                    }
+                });
+            }
+        });
         setContentView(web, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
@@ -72,6 +96,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode != REQ_WEB_PERMISSIONS) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+            return;
+        }
+        PermissionRequest req = pendingWebPermission;
+        pendingWebPermission = null;
+        if (req == null) {
+            return;
+        }
+        boolean ok = grantResults.length > 0;
+        for (int i = 0; i < grantResults.length; i++) {
+            if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                ok = false;
+                break;
+            }
+        }
+        if (ok) {
+            req.grant(req.getResources());
+        } else {
+            req.deny();
+        }
+    }
+
     private void hideSystemUI() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -80,6 +129,72 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+    }
+
+    private Set<String> loadDeclaredPermissions() {
+        Set<String> out = new HashSet<String>();
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(
+                    getPackageName(), PackageManager.GET_PERMISSIONS);
+            if (info.requestedPermissions != null) {
+                for (int i = 0; i < info.requestedPermissions.length; i++) {
+                    out.add(info.requestedPermissions[i]);
+                }
+            }
+        } catch (PackageManager.NameNotFoundException ignored) {
+        }
+        return out;
+    }
+
+    private void handleWebPermissionRequest(PermissionRequest request) {
+        if (pendingWebPermission != null) {
+            pendingWebPermission.deny();
+            pendingWebPermission = null;
+        }
+
+        String[] resources = request.getResources();
+        List<String> androidPerms = new ArrayList<String>();
+        for (int i = 0; i < resources.length; i++) {
+            String androidPerm = webResourceToAndroidPermission(resources[i]);
+            if (androidPerm == null) {
+                continue;
+            }
+            if (!declaredPermissions.contains(androidPerm)) {
+                request.deny();
+                return;
+            }
+            if (!androidPerms.contains(androidPerm)) {
+                androidPerms.add(androidPerm);
+            }
+        }
+
+        List<String> needAsk = new ArrayList<String>();
+        if (Build.VERSION.SDK_INT >= 23) {
+            for (int i = 0; i < androidPerms.size(); i++) {
+                String p = androidPerms.get(i);
+                if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                    needAsk.add(p);
+                }
+            }
+        }
+
+        if (needAsk.isEmpty()) {
+            request.grant(resources);
+            return;
+        }
+
+        pendingWebPermission = request;
+        requestPermissions(needAsk.toArray(new String[needAsk.size()]), REQ_WEB_PERMISSIONS);
+    }
+
+    private static String webResourceToAndroidPermission(String resource) {
+        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+            return Manifest.permission.CAMERA;
+        }
+        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+            return Manifest.permission.RECORD_AUDIO;
+        }
+        return null;
     }
 
     private void startServer(String frontendDir) {
